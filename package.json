@@ -3,7 +3,7 @@
   "displayName": "SQLite Studio",
   "publisher": "GaneshPawar",
   "description": "A full-featured SQLite editor for VS Code",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "engines": {
     "vscode": "^1.74.0",
     "node": ">=18.0.0"
