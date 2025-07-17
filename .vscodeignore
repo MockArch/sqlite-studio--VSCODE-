@@ -1,9 +1,25 @@
 .vscode/**
 .vscode-test/**
 src/**
-.git*
-**/*.map
-**/*.ts
-node_modules/**
-out/test/**
+
+# General dev files to ignore
+.git
+.github
+.gitignore
 *.vsix
+*.tsbuildinfo
+tsconfig.json
+webpack.config.js
+yarn.lock
+package-lock.json
+vsc-extension-quickstart.md
+
+# # Ignore node_modules, as they are handled separately
+# node_modules/**
+
+# IMPORTANT: Do NOT ignore the 'out' directory itself,
+# but you can ignore test files within it.
+out/test/**
+
+# Ignore source maps from the final package to reduce size
+**/*.map

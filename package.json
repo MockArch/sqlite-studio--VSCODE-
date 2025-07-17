@@ -19,9 +19,10 @@
     "url": "https://github.com/MockArch/sqlite-studio--VSCODE-/issues"
   },
   "activationEvents": [
-    "onView:sqlite-studio-sidebar"
+    "onView:sqlite-studio-sidebar",
+    "onCommand:sqlite-studio.openStudio"
   ],
-  "main": "./out/extension.js",
+  "main": "./dist/extension.js",
   "contributes": {
     "viewsContainers": {
       "activitybar": [
@@ -99,10 +100,11 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
+    "vscode:prepublish": "npm run webpack-production",
+    "webpack": "webpack --mode development",
+    "webpack-production": "webpack --mode production --devtool hidden-source-map",
+    "webpack-dev": "webpack --mode development --watch",
     "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
-    "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
     "test": "node ./out/test/runTest.js"
   },
@@ -110,14 +112,17 @@
     "sqlite3": "^5.1.6"
   },
   "devDependencies": {
-    "@types/vscode": "^1.74.0",
     "@types/mocha": "^10.0.1",
     "@types/node": "18.x",
     "@types/sqlite3": "^3.1.8",
+    "@types/vscode": "^1.74.0",
     "@typescript-eslint/eslint-plugin": "^6.4.1",
     "@typescript-eslint/parser": "^6.4.1",
+    "@vscode/test-electron": "^2.3.4",
     "eslint": "^8.47.0",
+    "ts-loader": "^9.5.2",
     "typescript": "^5.1.6",
-    "@vscode/test-electron": "^2.3.4"
+    "webpack": "^5.100.2",
+    "webpack-cli": "^6.0.1"
   }
 }
