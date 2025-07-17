@@ -1,4 +1,9 @@
-node_modules
-src/test
-.vscode
-*.map
+.vscode/**
+.vscode-test/**
+src/**
+.git*
+**/*.map
+**/*.ts
+node_modules/**
+out/test/**
+*.vsix
