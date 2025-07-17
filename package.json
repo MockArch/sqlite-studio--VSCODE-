@@ -109,8 +109,8 @@
     "compile": "tsc -p ./",
     "lint": "eslint src --ext ts",
     "test": "node ./out/test/runTest.js",
-    "rebuild": "electron-rebuild",
-    "postinstall": "electron-rebuild"
+    "rebuild": "electron-rebuild --version 29.5.2",
+    "postinstall": "electron-rebuild --version 29.5.2"
   },
   "dependencies": {
     "sqlite3": "^5.1.7"
