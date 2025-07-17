@@ -1,5 +1,9 @@
 
 ---
+
+<h1 align="center">
+  SQLite Studio for VS Code
+</h1>
  A powerful, developer-friendly SQLite database manager directly inside Visual Studio Code.
 SQLite Studio provides a beautiful and intuitive interface to connect to, query, and manage multiple SQLite databases without ever leaving your editor. 
 
