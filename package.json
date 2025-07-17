@@ -1,0 +1,115 @@
+{
+  "name": "sqlite-studio",
+  "displayName": "SQLite Studio",
+  "description": "A full-featured SQLite editor for VS Code",
+  "version": "1.3.0",
+  "engines": {
+    "vscode": "^1.74.0",
+    "node": ">=18.0.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:sqlite-studio-sidebar"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "sqlite-studio-activitybar",
+          "title": "SQLite Studio",
+          "icon": "$(database)"
+        }
+      ]
+    },
+    "views": {
+      "sqlite-studio-activitybar": [
+        {
+          "id": "sqlite-studio-sidebar",
+          "name": "Database Explorer",
+          "contextualTitle": "SQLite Studio"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "sqlite-studio.openStudio",
+        "title": "SQLite Studio: Open Full Editor"
+      },
+      {
+        "command": "sqlite-studio.addDatabase",
+        "title": "Add SQLite Database",
+        "icon": "$(add)"
+      },
+      {
+        "command": "sqlite-studio.removeDatabase",
+        "title": "Remove Database",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "sqlite-studio.refreshExplorer",
+        "title": "Refresh Explorer",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "sqlite-studio.viewTable",
+        "title": "View Table Contents",
+        "icon": "$(run)"
+      },
+      {
+        "command": "sqlite-studio.clearHistory",
+        "title": "SQLite Studio: Clear Query History"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "sqlite-studio.addDatabase",
+          "when": "view == sqlite-studio-sidebar",
+          "group": "navigation@1"
+        },
+        {
+          "command": "sqlite-studio.refreshExplorer",
+          "when": "view == sqlite-studio-sidebar",
+          "group": "navigation@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "sqlite-studio.removeDatabase",
+          "when": "view == sqlite-studio-sidebar && viewItem == 'database'",
+          "group": "inline"
+        },
+        {
+          "command": "sqlite-studio.viewTable",
+          "when": "view == sqlite-studio-sidebar && viewItem == 'table'",
+          "group": "inline"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js"
+  },
+  "dependencies": {
+    "sqlite3": "^5.1.6"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.74.0",
+    "@types/mocha": "^10.0.1",
+    "@types/node": "18.x",
+    "@types/sqlite3": "^3.1.8",
+    "@typescript-eslint/eslint-plugin": "^6.4.1",
+    "@typescript-eslint/parser": "^6.4.1",
+    "eslint": "^8.47.0",
+    "typescript": "^5.1.6",
+    "@vscode/test-electron": "^2.3.4"
+  }
+}
