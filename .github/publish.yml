@@ -1,0 +1,48 @@
+# .github/workflows/publish.yml
+
+name: Publish to VS Code Marketplace
+
+on:
+  # This workflow runs manually or when you push a new tag like 'v1.3.2'
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-publish:
+    strategy:
+      matrix:
+        # Create a build job for each platform
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18.x'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Rebuild native modules for Electron
+        # Use the electron-rebuild package to ensure sqlite3 is compiled correctly for the OS
+        run: npm run rebuild
+
+      - name: Build the extension with Webpack
+        run: npm run webpack-production
+
+      - name: Package the extension
+        run: npm install -g vsce
+
+      - name: Publish to Marketplace
+        # The --target flag tells vsce which platform this package is for
+        # The PAT is securely passed from GitHub Secrets
+        run: vsce publish --target ${{ runner.os == 'macOS' && 'darwin-arm64' || runner.os == 'Linux' && 'linux-x64' || 'win32-x64' }}
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
