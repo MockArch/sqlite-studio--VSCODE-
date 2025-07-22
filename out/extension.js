@@ -1,4 +1,5 @@
 "use strict";
+// src/extension.ts
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -46,6 +47,7 @@ exports.activate = activate;
 exports.deactivate = deactivate;
 const vscode = __importStar(require("vscode"));
 const path = __importStar(require("path"));
+const fs = __importStar(require("fs")); // Import the 'fs' module
 const sidebar_1 = require("./sidebar");
 const main_webview_1 = require("./main-webview");
 const state_manager_1 = require("./state-manager");
@@ -71,7 +73,16 @@ function activate(context) {
             filters: { 'SQLite Database': ['db', 'sqlite', 'sqlite3', 'db3'] }
         });
         if (selectedFiles && selectedFiles.length > 0) {
-            state_manager_1.StateManager.addDatabase(selectedFiles[0].fsPath);
+            const dbPath = selectedFiles[0].fsPath;
+            // Start of changes
+            const fileSizeInBytes = fs.statSync(dbPath).size;
+            const fileSizeInGiB = fileSizeInBytes / (1024 * 1024 * 1024);
+            if (fileSizeInGiB > 1) {
+                vscode.window.showErrorMessage('The selected database file exceeds the 1 GiB size limit.');
+                return;
+            }
+            // End of changes
+            state_manager_1.StateManager.addDatabase(dbPath);
         }
     })), vscode.commands.registerCommand('sqlite-studio.removeDatabase', (item) => __awaiter(this, void 0, void 0, function* () {
         const confirmation = yield vscode.window.showWarningMessage(`Are you sure you want to remove the database '${path.basename(item.dbPath)}'? This does not delete the file.`, { modal: true }, 'Remove');

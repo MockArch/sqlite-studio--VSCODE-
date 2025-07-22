@@ -1,5 +1,8 @@
+// src/extension.ts
+
 import * as vscode from 'vscode';
 import * as path from 'path';
+import * as fs from 'fs'; // Import the 'fs' module
 import { DatabaseExplorerProvider, DatabaseTreeItem } from './sidebar';
 import { MainWebviewPanel } from './main-webview';
 import { StateManager } from './state-manager';
@@ -33,7 +36,17 @@ export function activate(context: vscode.ExtensionContext) {
                 filters: { 'SQLite Database': ['db', 'sqlite', 'sqlite3', 'db3'] }
             });
             if (selectedFiles && selectedFiles.length > 0) {
-                StateManager.addDatabase(selectedFiles[0].fsPath);
+                const dbPath = selectedFiles[0].fsPath;
+                // Start of changes
+                const fileSizeInBytes = fs.statSync(dbPath).size;
+                const fileSizeInGiB = fileSizeInBytes / (1024 * 1024 * 1024);
+
+                if (fileSizeInGiB > 1) {
+                    vscode.window.showErrorMessage('The selected database file exceeds the 1 GiB size limit.');
+                    return;
+                }
+                // End of changes
+                StateManager.addDatabase(dbPath);
             }
         }),
 

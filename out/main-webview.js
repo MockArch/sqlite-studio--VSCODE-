@@ -1,4 +1,5 @@
 "use strict";
+// src/main-webview.ts
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -46,10 +47,11 @@ exports.MainWebviewPanel = void 0;
 const vscode = __importStar(require("vscode"));
 const sqlite3 = __importStar(require("sqlite3"));
 const state_manager_1 = require("./state-manager");
+const PAGE_SIZE = 100; // Define page size for pagination
 class MainWebviewPanel {
     constructor(panel) {
         this._disposables = [];
-        this._queryResultData = [];
+        this._currentQuery = '';
         this._panel = panel;
         this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
         this._panel.webview.html = this._getHtmlForWebview(this._panel.webview);
@@ -65,11 +67,19 @@ class MainWebviewPanel {
         MainWebviewPanel.currentPanel = new MainWebviewPanel(panel);
     }
     sendMessage(message) { this._panel.webview.postMessage(message); }
-    dispose() { }
+    dispose() {
+        MainWebviewPanel.currentPanel = undefined;
+        this._panel.dispose();
+        while (this._disposables.length) {
+            const x = this._disposables.pop();
+            if (x) {
+                x.dispose();
+            }
+        }
+    }
     handleMessage(message) {
         return __awaiter(this, void 0, void 0, function* () {
             const dbPath = state_manager_1.StateManager.getActiveDatabase();
-            // This new case handles the request for initial data from the webview
             if (message.command === 'webview-ready') {
                 this.sendMessage({
                     command: 'update-state',
@@ -86,16 +96,25 @@ class MainWebviewPanel {
             switch (message.command) {
                 case 'run-query':
                     try {
-                        const queryToRun = message.selection || message.query;
-                        state_manager_1.StateManager.addToHistory(queryToRun);
-                        this.sendMessage({ command: 'history-updated', history: state_manager_1.StateManager.getQueryHistory() });
+                        const queryToRun = message.query;
+                        this._currentQuery = queryToRun;
+                        if (message.offset === 0) { // Only add to history on the first page load of a query
+                            state_manager_1.StateManager.addToHistory(queryToRun);
+                            this.sendMessage({ command: 'history-updated', history: state_manager_1.StateManager.getQueryHistory() });
+                        }
                         const startTime = performance.now();
-                        const result = yield this.executeQuery(dbPath, queryToRun);
+                        const result = yield this.executeQuery(dbPath, queryToRun, message.offset);
                         const endTime = performance.now();
                         const duration = (endTime - startTime).toFixed(2);
                         if (result.isSelect) {
-                            this._queryResultData = result.data;
-                            this.sendMessage({ command: 'query-result', data: result.data, notification: result.notification, duration: duration });
+                            this.sendMessage({
+                                command: 'query-result',
+                                data: result.data,
+                                totalRows: result.totalRows,
+                                duration: duration,
+                                query: this._currentQuery,
+                                notification: result.notification
+                            });
                         }
                         else {
                             this.sendMessage({ command: 'update-result', changes: result.data, notification: result.notification, duration: duration });
@@ -109,12 +128,19 @@ class MainWebviewPanel {
                     this.sendMessage({ command: 'set-query-text', text: message.query });
                     try {
                         const startTime = performance.now();
-                        const result = yield this.executeQuery(dbPath, message.query);
+                        this._currentQuery = message.query;
+                        const result = yield this.executeQuery(dbPath, message.query, 0);
                         const endTime = performance.now();
                         const duration = (endTime - startTime).toFixed(2);
                         if (result.isSelect) {
-                            this._queryResultData = result.data;
-                            this.sendMessage({ command: 'query-result', data: result.data, notification: result.notification, duration: duration });
+                            this.sendMessage({
+                                command: 'query-result',
+                                data: result.data,
+                                totalRows: result.totalRows,
+                                duration: duration,
+                                query: this._currentQuery,
+                                notification: result.notification
+                            });
                         }
                     }
                     catch (error) {
@@ -130,31 +156,69 @@ class MainWebviewPanel {
             }
         });
     }
-    executeQuery(dbPath, query) {
+    // --- FIX (Corrected): Replaced faulty async/await with stable callback serialization ---
+    executeQuery(dbPath, query, offset) {
         return new Promise((resolve, reject) => {
             query = query.trim().replace(/;+\s*$/, '').trim();
-            if (!query)
+            if (!query) {
                 return reject(new Error("Query is empty."));
+            }
             const isSelectQuery = /^\s*select/i.test(query);
-            let notification = '';
-            if (isSelectQuery && !/limit\s+\d+/i.test(query)) {
-                query += ' LIMIT 100';
-                notification = 'Note: Query results limited to 100 records.';
-            }
             const db = new sqlite3.Database(dbPath, sqlite3.OPEN_READWRITE, (err) => {
-                if (err)
+                if (err) {
                     return reject(new Error(`DB Connection Error: ${err.message}`));
+                }
             });
-            if (isSelectQuery) {
-                db.all(query, (err, rows) => {
-                    db.close(() => err ? reject(err) : resolve({ data: rows, notification, isSelect: true }));
-                });
-            }
-            else {
-                db.run(query, function (err) {
-                    db.close(() => err ? reject(err) : resolve({ data: this.changes, notification: 'Query executed successfully.', isSelect: false }));
-                });
-            }
+            // Use serialize to guarantee sequential execution of the database commands
+            db.serialize(() => {
+                if (isSelectQuery) {
+                    const countQuery = `SELECT COUNT(*) as count FROM (${query.replace(/;\s*$/, '')})`;
+                    let totalRows;
+                    let notification = '';
+                    // Step 1: Get the total row count for pagination
+                    db.get(countQuery, (err, row) => {
+                        if (err || !row) {
+                            notification = "Note: Could not determine total rows for pagination.";
+                            totalRows = undefined;
+                        }
+                        else {
+                            totalRows = row.count;
+                        }
+                        // Step 2: Get the paginated data. This runs *after* the count is complete.
+                        const paginatedQuery = `${query} LIMIT ${PAGE_SIZE} OFFSET ${offset}`;
+                        db.all(paginatedQuery, (err, rows) => {
+                            // Step 3: Close the database and resolve the promise with all our data.
+                            db.close((closeErr) => {
+                                if (closeErr)
+                                    return reject(closeErr);
+                                if (err)
+                                    return reject(err);
+                                // If count failed, we can't show full pagination.
+                                // We'll set totalRows to undefined so the UI can hide the controls.
+                                const effectiveTotalRows = (typeof totalRows === 'number') ? totalRows : undefined;
+                                resolve({
+                                    data: rows,
+                                    notification: notification,
+                                    isSelect: true,
+                                    totalRows: effectiveTotalRows
+                                });
+                            });
+                        });
+                    });
+                }
+                else { // For non-SELECT queries (INSERT, UPDATE, etc.)
+                    db.run(query, function (err) {
+                        const changes = this.changes;
+                        db.close((closeErr) => {
+                            if (closeErr)
+                                return reject(closeErr);
+                            if (err)
+                                return reject(err);
+                            resolve({ data: changes, notification: 'Query executed successfully.', isSelect: false });
+                        });
+                    });
+                }
+            });
         });
     }
     _getHtmlForWebview(webview) {
@@ -203,11 +267,14 @@ class MainWebviewPanel {
               body { scrollbar-width: thin; scrollbar-color: var(--color-panel-border) var(--color-background); }
               ::-webkit-scrollbar { width: 8px; } ::-webkit-scrollbar-track { background: var(--color-background); }
               ::-webkit-scrollbar-thumb { background-color: var(--color-panel-border); border-radius: 4px; }
-              /* FIX: Explicitly set text color for the query input */
-              #query-input {
-                  color: var(--color-foreground);
-                  background-color: var(--color-input-background);
+              #query-input { color: var(--color-foreground); background-color: var(--color-input-background); }
+              .pagination-btn {
+                padding: 2px 8px; border-radius: 4px; background-color: var(--color-button-primary-background);
+                color: var(--color-button-primary-foreground); font-size: 11px; margin: 0 1px; cursor: pointer; border: none;
               }
+              .pagination-btn.active { background-color: var(--vscode-list-activeSelectionBackground); font-weight: bold; }
+              .pagination-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+              .pagination-ellipsis { margin: 0 4px; color: var(--color-description-foreground); }
           </style>
       </head>
       <body class="bg-background text-foreground font-sans flex flex-col h-screen overflow-hidden">
@@ -242,8 +309,9 @@ class MainWebviewPanel {
                       </div>
                       <div id="loader-overlay" class="absolute inset-0 bg-background/70 justify-center items-center hidden"><div class="w-8 h-8 border-4 border-description border-t-button-primary rounded-full animate-spin"></div></div>
                   </div>
-                  <div id="results-footer" class="p-1 px-3 border-t border-panel-border text-xs text-description flex-shrink-0">
-                      <span id="status-text">Ready</span>
+                  <div id="results-footer" class="p-1 px-3 border-t border-panel-border text-xs text-description flex justify-between items-center flex-shrink-0">
+                      <span id="status-text">Ready Sir!!!!!!</span>
+                      <div id="pagination-controls" class="flex items-center gap-1"></div>
                   </div>
               </div>
           </div>
@@ -262,18 +330,28 @@ class MainWebviewPanel {
                     resizer: document.getElementById('resizer'),
                     queryPane: document.querySelector('.query-pane'),
                     statusText: document.getElementById('status-text'),
+                    paginationControls: document.getElementById('pagination-controls'),
                 },
                 state: {
-                    hasActiveDb: false
+                    hasActiveDb: false,
+                    currentPage: 1,
+                    totalRows: 0,
+                    currentQuery: '',
+                    pageSize: ${PAGE_SIZE},
                 },
                 init() {
                     this.addEventListeners();
-                    // FIX: Request initial state from extension after webview is loaded
                     this.vscode.postMessage({ command: 'webview-ready' });
                 },
                 addEventListeners() {
                     this.elements.runBtn.addEventListener('click', () => this.runQuery());
                     this.elements.dbSelector.addEventListener('change', (e) => this.changeActiveDb(e.target.value));
+                    this.elements.paginationControls.addEventListener('click', (e) => {
+                        const button = e.target.closest('.pagination-btn');
+                        if (button && !button.disabled) {
+                            this.loadPage(parseInt(button.dataset.page, 10));
+                        }
+                    });
                     this.elements.queryInput.addEventListener('keydown', (e) => {
                         if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
                             e.preventDefault();
@@ -298,9 +376,15 @@ class MainWebviewPanel {
                     const query = this.elements.queryInput.value;
                     const selection = window.getSelection().toString();
                     if (query.trim() && this.state.hasActiveDb) {
-                        this.showLoader(true);
-                        this.vscode.postMessage({ command: 'run-query', query, selection });
+                        this.state.currentQuery = selection || query;
+                        this.loadPage(1); // Always start from page 1 for a new query
                     }
+                },
+                loadPage(page) {
+                    this.showLoader(true);
+                    this.state.currentPage = page;
+                    const offset = (page - 1) * this.state.pageSize;
+                    this.vscode.postMessage({ command: 'run-query', query: this.state.currentQuery, offset: offset });
                 },
                 changeActiveDb(dbPath) {
                     this.vscode.postMessage({ command: 'change-active-db', dbPath });
@@ -323,35 +407,48 @@ class MainWebviewPanel {
                     }
                 },
                 showLoader(show) {
-                    this.elements.loader.classList.toggle('hidden', !show);
+                    this.elements.loader.style.display = show ? 'flex' : 'none';
                 },
                 updateDbSelector(databases, activeDb) {
                     this.elements.dbSelector.innerHTML = '';
                     if (databases.length === 0) {
                         this.elements.dbSelector.innerHTML = '<option>No databases found</option>';
-                        this.elements.dbSelector.disabled = true;
-                        this.state.hasActiveDb = false;
+                        this.elements.dbSelector.disabled = true; this.state.hasActiveDb = false;
                     } else {
                         databases.forEach(db => {
-                            const option = document.createElement('option');
-                            option.value = db;
-                            option.textContent = db.split(/[\\\\/]/).pop();
-                            this.elements.dbSelector.appendChild(option);
+                            const option = new Option(db.split(/[\\\\/]/).pop(), db);
+                            this.elements.dbSelector.add(option);
                         });
                         this.elements.dbSelector.disabled = false;
-                        this.elements.dbSelector.value = activeDb || databases[0];
-                        this.state.hasActiveDb = true;
+                        this.elements.dbSelector.value = activeDb || databases[0]; this.state.hasActiveDb = true;
                     }
                     this.elements.runBtn.disabled = !this.state.hasActiveDb;
                 },
-                renderResults(data, duration) {
-                    this.elements.statusText.textContent = \`Success: \${data.length} rows returned in \${duration}ms.\`;
-                    if (data.length === 0) {
-                        this.elements.resultsPanel.innerHTML = '<div class="placeholder"><p>Query returned no results.</p></div>';
+                renderResults(data, totalRows, query, duration, notification) {
+                    this.state.totalRows = totalRows;
+                    this.state.currentQuery = query;
+                    const numRows = data.length;
+                    const startRow = (this.state.currentPage - 1) * this.state.pageSize + 1;
+                    const endRow = startRow + numRows - 1;
+
+                    let status = \`Showing \${numRows > 0 ? numRows : 0} rows (\${duration}ms)\`;
+                    if(typeof totalRows === 'number') {
+                         status = \`Showing rows \${numRows > 0 ? startRow : 0}-\${endRow} of \${totalRows} (\${duration}ms)\`;
+                    }
+                    if (notification) {
+                        status += \` | \${notification}\`;
+                    }
+                    this.elements.statusText.textContent = status;
+                    
+                    this.renderPagination();
+
+                    if (numRows === 0) {
+                        this.elements.resultsPanel.innerHTML = '<div class="placeholder flex items-center justify-center h-full"><p>Query returned no results.</p></div>';
                         return;
                     }
+                    
                     let table = '<table class="w-full text-left text-sm"><thead><tr class="bg-header">';
-                    Object.keys(data[0]).forEach(key => table += \`<th class="p-2 border-r border-panel-border font-medium sticky top-0 bg-header">\${key}</th>\`);
+                    Object.keys(data[0]).forEach(key => table += \`<th class="p-2 border-r border-panel-border font-medium sticky top-0 bg-header z-10">\${key}</th>\`);
                     table += '</tr></thead><tbody>';
                     data.forEach((row, index) => {
                         table += \`<tr class="\${index % 2 === 0 ? '' : 'bg-list-hover'}">\`;
@@ -360,22 +457,68 @@ class MainWebviewPanel {
                     });
                     table += '</tbody></table>';
                     this.elements.resultsPanel.innerHTML = table;
+                    this.elements.resultsPanel.scrollTop = 0;
+                },
+                renderPagination() {
+                    const totalRows = this.state.totalRows;
+                    if (typeof totalRows !== 'number') { // Hide pagination if total is unknown
+                        this.elements.paginationControls.innerHTML = '';
+                        return;
+                    }
+                    
+                    const totalPages = Math.ceil(totalRows / this.state.pageSize);
+                    const currentPage = this.state.currentPage;
+                    this.elements.paginationControls.innerHTML = '';
+
+                    if (totalPages <= 1) return;
+
+                    let html = \`<button class="pagination-btn" data-page="\${currentPage - 1}" \${currentPage === 1 ? 'disabled' : ''}><</button>\`;
+                    
+                    const maxButtons = 7;
+                    let startPage, endPage;
+                    if (totalPages <= maxButtons) {
+                        startPage = 1; endPage = totalPages;
+                    } else {
+                        const maxPagesBeforeCurrent = Math.floor((maxButtons - 3) / 2);
+                        const maxPagesAfterCurrent = Math.ceil((maxButtons - 3) / 2);
+                        if (currentPage <= maxPagesBeforeCurrent + 1) {
+                            startPage = 1; endPage = maxButtons - 2;
+                        } else if (currentPage + maxPagesAfterCurrent >= totalPages) {
+                            startPage = totalPages - (maxButtons - 3); endPage = totalPages;
+                        } else {
+                            startPage = currentPage - maxPagesBeforeCurrent; endPage = currentPage + maxPagesAfterCurrent;
+                        }
+                    }
+
+                    if (startPage > 1) {
+                        html += '<button class="pagination-btn" data-page="1">1</button>';
+                        if (startPage > 2) html += '<span class="pagination-ellipsis">...</span>';
+                    }
+
+                    for (let i = startPage; i <= endPage; i++) {
+                        html += \`<button class="pagination-btn \${i === currentPage ? 'active' : ''}" data-page="\${i}">\${i}</button>\`;
+                    }
+                    
+                    if (endPage < totalPages) {
+                        if (endPage < totalPages - 1) html += '<span class="pagination-ellipsis">...</span>';
+                        html += \`<button class="pagination-btn" data-page="\${totalPages}">\${totalPages}</button>\`;
+                    }
+
+                    html += \`<button class="pagination-btn" data-page="\${currentPage + 1}" \${currentPage === totalPages ? 'disabled' : ''}>></button>\`;
+                    this.elements.paginationControls.innerHTML = html;
                 },
                 renderHistory(history) {
                     this.elements.historyList.innerHTML = '';
                     if (history.length === 0) {
-                        this.elements.historyList.innerHTML = '<div class="placeholder"><p>No query history yet.</p></div>';
+                        this.elements.historyList.innerHTML = '<div class="p-2 text-description">No query history yet.</div>';
                         return;
                     }
-                    // FIX: Use a grid for table-like format
                     const gridContainer = document.createElement('div');
-                    gridContainer.className = 'grid';
-                    gridContainer.style.gridTemplateColumns = '1fr auto';
                     history.forEach(item => {
                         const div = document.createElement('div');
-                        div.className = 'history-item grid grid-cols-[1fr_auto] items-center gap-4 hover:bg-list-hover p-2 border-b border-panel-border';
+                        div.className = 'history-item grid grid-cols-[1fr_auto] items-center gap-4 hover:bg-list-hover p-2 border-b border-panel-border cursor-pointer';
                         div.dataset.query = item.query;
-                        div.innerHTML = \`<div class="history-query font-mono text-sm truncate">\${item.query}</div><div class="history-date text-xs text-description">\${new Date(item.timestamp).toLocaleString()}</div>\`;
+                        div.innerHTML = \`<div class="history-query font-mono text-sm truncate" title="\${item.query}">\${item.query}</div><div class="history-date text-xs text-description">\${new Date(item.timestamp).toLocaleString()}</div>\`;
                         gridContainer.appendChild(div);
                     });
                     this.elements.historyList.appendChild(gridContainer);
@@ -391,25 +534,23 @@ class MainWebviewPanel {
                             }
                             break;
                         case 'query-result':
-                            this.renderResults(message.data, message.duration);
+                            this.renderResults(message.data, message.totalRows, message.query, message.duration, message.notification);
                             this.switchTab(document.querySelector('.tab-button[data-tab="results"]'));
                             break;
                         case 'update-result':
+                            this.elements.paginationControls.innerHTML = '';
                             this.elements.statusText.textContent = \`Success: \${message.notification} (\${message.changes} rows affected) in \${message.duration}ms.\`;
-                            this.elements.resultsPanel.innerHTML = \`<div class="placeholder"><p>\${message.notification} (\${message.changes} rows affected)</p></div>\`;
+                            this.elements.resultsPanel.innerHTML = \`<div class="placeholder flex items-center justify-center h-full"><p>\${message.notification} (\${message.changes} rows affected)</p></div>\`;
                             this.switchTab(document.querySelector('.tab-button[data-tab="results"]'));
                             break;
                         case 'query-error':
+                            this.elements.paginationControls.innerHTML = '';
                             this.elements.statusText.textContent = 'Error executing query.';
-                            this.elements.resultsPanel.innerHTML = \`<div class="error-message p-4"><h3>Query Failed</h3><pre class="whitespace-pre-wrap">\${message.error}</pre></div>\`;
+                            this.elements.resultsPanel.innerHTML = \`<div class="p-4 text-error"><h3 class="font-bold mb-2">Query Failed</h3><pre class="text-xs whitespace-pre-wrap">\${message.error}</pre></div>\`;
                             this.switchTab(document.querySelector('.tab-button[data-tab="results"]'));
                             break;
-                        case 'history-updated':
-                            this.renderHistory(message.history);
-                            break;
-                        case 'set-query-text':
-                            this.elements.queryInput.value = message.text;
-                            break;
+                        case 'history-updated': this.renderHistory(message.history); break;
+                        case 'set-query-text': this.elements.queryInput.value = message.text; break;
                     }
                 }
             };

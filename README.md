@@ -1,28 +1,31 @@
-
 ---
 
 <h1 align="center">
   SQLite Studio for VS Code
 </h1>
- A powerful, developer-friendly SQLite database manager directly inside Visual Studio Code.
-SQLite Studio provides a beautiful and intuitive interface to connect to, query, and manage multiple SQLite databases without ever leaving your editor. 
+<p align="center">
+A powerful, developer-friendly SQLite database manager directly inside Visual Studio Code.
+<br />
+SQLite Studio provides a beautiful and intuitive interface to connect to, query, and manage multiple SQLite databases without ever leaving your editor.
+</p>
 
 ## ✨ Features
 
 -   **Modern, Polished UI**: A beautiful and responsive interface built with Tailwind CSS that respects your VS Code theme.
--   **Multi-Database Management**: Connect to and seamlessly switch between multiple SQLite databases in your workspace using a dedicated explorer or an in-editor dropdown.
+-   **Multi-Database Management**: Connect to and seamlessly switch between multiple SQLite databases in your workspace.
 -   **Powerful Database Explorer**:
     -   🗂️ View all connected databases in the sidebar.
-    -   👀 Expand tables to see their schema, including column names and data types.
+    -   👀 Expand tables to see their schema, including column names, types, and primary keys.
     -   🔢 Instantly see the number of rows for each table.
     -   🖱️ One-click to view table data or remove a database connection.
--   **Advanced Query Editor**:
-    -   ✍️ Write your queries in a dedicated, resizable editor panel.
+-   **Advanced Editor & Results View**:
+    -   ✍️ Write queries in a dedicated, resizable editor panel.
     -   🎯 **Run Selected Query**: Highlight a portion of your script and execute only that part.
-    -   🛡️ **Automatic Limiting**: `SELECT` queries are automatically limited to 100 rows to ensure performance, with a clear notification.
--   **Professional Results Grid**:
-    -   📊 View query results in a clean, easy-to-read table.
+    -   📄 **Full Result Pagination**: Automatically paginates `SELECT` results, allowing you to navigate millions of rows effortlessly with intuitive page controls (`< 1 2 3 ... N >`).
     -   ⏱️ See query metadata, including execution time and the number of rows returned.
+-   **Robust & Performant**:
+    -   💾 **1 GiB File Size Limit**: Gracefully handles large database files by preventing files over 1 GiB from being opened, ensuring editor stability.
+    -   🧠 **Memory Efficient**: Only the visible page of results is loaded into memory, keeping the extension fast and responsive, regardless of table size.
 -   **Full Query History**:
     -   📜 Every query you run is automatically saved to the History tab.
     -   🔄 View, search, and re-run previous queries with a single click.
@@ -45,10 +48,15 @@ SQLite Studio provides a beautiful and intuitive interface to connect to, query,
 
 ## 📸 Screenshots
 
+### Main Editor View
+*The main editor provides a complete workspace for querying, viewing results, and navigating history. Notice the pagination controls in the footer of the results panel.*
+
+<img src="./images/screenshot-main-editor.png" alt="Main Editor View">
+
 | Database Explorer                                                                                                      | Query History                                                                                              |
 | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | Browse schemas, view column types, and see row counts at a glance.                                                     | Never lose a query. View, search, and re-run any query you've executed.                                    |
-| <!-- ACTION: Replace with screenshot of sidebar --> <img src="./images/screenshot-sidebar.png" alt="Database Explorer"> | <!-- ACTION: Replace with screenshot of history tab --> <img src="./images/screenshot-history.png" alt="Query History"> |
+| <img src="./images/screenshot-sidebar.png" alt="Database Explorer"> | <img src="./images/screenshot-history.png" alt="Query History"> |
 
 ---
 
@@ -71,9 +79,9 @@ Contributions are what make the open-source community such an amazing place to l
 
 3.  **Perform a clean compile:**
     ```bash
-    npm run compile
+    npm run vscode:prepublish
     ```
-    > **Note:** If you encounter issues, a clean rebuild is often the solution. Delete the `out` and `node_modules` directories, then run `npm install` and `npm run compile` again.
+    > **Note:** If you encounter issues, a clean rebuild is often the solution. Delete the `out` and `node_modules` directories, then run `npm install` and `npm run vscode:prepublish` again.
 
 4.  **Start the extension:**
     -   Press `F5` in VS Code to open a new **Extension Development Host** window.
